@@ -48,10 +48,43 @@ struct Opt {
 
 fn main() {
     use std::fs::File;
-    use std::io::{self, BufReader};
+    use std::io::{self, BufReader, Write};
 
     let opt = Opt::from_args();
     let mut port = serial::open(&opt.tty_path).expect("path points to invalid TTY");
+    port.set_timeout(Duration::new(opt.timeout, 0)).unwrap();
 
-    // FIXME: Implement the `ttywrite` utility.
+    let mut settings = port.read_settings().unwrap();
+    settings.set_baud_rate(opt.baud_rate).unwrap();
+    settings.set_char_size(opt.char_width);
+    settings.set_flow_control(opt.flow_control);
+    settings.set_stop_bits(opt.stop_bits);
+    port.write_settings(&settings).unwrap();
+
+    let stdin = io::stdin();
+    let mut input: Box<dyn std::io::BufRead> = match opt.input {
+        Some(path_buf) => Box::new(BufReader::new(File::open(path_buf).unwrap())),
+        None => Box::new(stdin.lock())
+    };
+
+    if opt.raw {
+        let mut data = Vec::new();
+        input.read_to_end(&mut data).unwrap();
+        port.write_all(&data).unwrap();
+    } else {
+        Xmodem::transmit_with_progress(input, port, progress_callback).unwrap();
+    }
+
+}
+
+fn progress_callback(progress_marker: xmodem::Progress) {
+    use xmodem::Progress::*;
+
+    match progress_marker {
+        Waiting => println!("Waiting for reciever to send NAK"),
+        Started => println!("Data transfer started"),
+        Packet(pack_num) => println!("Recieved/Sent packet num {}", pack_num),
+        //NAK => println!(""),
+        //Unknown => println!(""),
+    }
 }
