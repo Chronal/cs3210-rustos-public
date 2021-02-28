@@ -80,10 +80,12 @@ fn main() {
 fn progress_callback(progress_marker: xmodem::Progress) {
     use xmodem::Progress::*;
 
+    let prefix = "xmodem: ";
+
     match progress_marker {
-        Waiting => println!("Waiting for reciever to send NAK"),
-        Started => println!("Data transfer started"),
-        Packet(pack_num) => println!("Recieved/Sent packet num {}", pack_num),
+        Waiting => println!("{}Waiting for reciever to send NAK", prefix),
+        Started => println!("{}Data transfer started", prefix),
+        Packet(pack_num) => println!("{}Sent packet num {}", prefix, pack_num),
         //NAK => println!(""),
         //Unknown => println!(""),
     }

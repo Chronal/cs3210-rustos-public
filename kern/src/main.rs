@@ -18,8 +18,25 @@ use console::kprintln;
 
 // FIXME: You need to add dependencies here to
 // test your drivers (Phase 2). Add them as needed.
+use pi::timer;
+use pi::gpio::Gpio;
+use pi::gpio::Output;
+use core::time::Duration; 
+use core::fmt::Write; 
 
 fn kmain() -> ! {
-    // FIXME: Start the shell.
-    unimplemented!()
+
+    let mut led = Gpio::new(16).into_output();
+    init_flash(&mut led);
+
+    shell::shell("> ");
+}
+
+fn init_flash(led: &mut Gpio<Output>) {
+    for _ in 0..5 {
+        led.set();
+        pi::timer::spin_sleep(Duration::from_millis(100));
+        led.clear();
+        pi::timer::spin_sleep(Duration::from_millis(100));
+    }
 }

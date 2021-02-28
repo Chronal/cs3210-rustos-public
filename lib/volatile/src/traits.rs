@@ -67,4 +67,3 @@ pub trait ReadableWriteable<T>: Readable<T> + Writeable<T>
         self.write(init_val | mask);
     }
 }
-
