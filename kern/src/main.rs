@@ -4,39 +4,42 @@
 #![feature(asm)]
 #![feature(global_asm)]
 #![feature(optin_builtin_traits)]
+#![feature(raw_vec_internals)]
 #![cfg_attr(not(test), no_std)]
 #![cfg_attr(not(test), no_main)]
 
 #[cfg(not(test))]
 mod init;
 
+extern crate alloc;
+
+pub mod allocator;
 pub mod console;
+pub mod fs;
 pub mod mutex;
 pub mod shell;
 
-use console::kprintln;
-
-// FIXME: You need to add dependencies here to
-// test your drivers (Phase 2). Add them as needed.
 use pi::timer;
-use pi::gpio::Gpio;
-use pi::gpio::Output;
+use pi::gpio::{Gpio, Output};
 use core::time::Duration; 
 use core::fmt::Write; 
 
+use allocator::Allocator;
+use fs::FileSystem;
+
+#[cfg_attr(not(test), global_allocator)]
+pub static ALLOCATOR: Allocator = Allocator::uninitialized();
+pub static FILESYSTEM: FileSystem = FileSystem::uninitialized();
+
 fn kmain() -> ! {
+    unsafe {
+        //ALLOCATOR.initialize();
+        //FILESYSTEM.initialize();
+    }
 
     let mut led = Gpio::new(16).into_output();
     init_flash(&mut led);
 
+    kprintln!("Welcome to cs3210!");
     shell::shell("> ");
-}
-
-fn init_flash(led: &mut Gpio<Output>) {
-    for _ in 0..5 {
-        led.set();
-        pi::timer::spin_sleep(Duration::from_millis(100));
-        led.clear();
-        pi::timer::spin_sleep(Duration::from_millis(100));
-    }
 }
