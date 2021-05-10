@@ -1,4 +1,6 @@
 /// A raw `ATAG` as laid out in memory.
+///
+
 #[repr(C)]
 pub struct Atag {
     pub dwords: u32,
@@ -20,7 +22,15 @@ impl Atag {
 
     /// FIXME: Returns the ATAG following `self`, if there is one.
     pub fn next(&self) -> Option<&Atag> {
-        unimplemented!()
+        if self.tag == super::raw::Atag::NONE {
+            None
+        } else {
+            unsafe {
+                let self_ptr = self as *const Atag as *const u32;
+                let next_atag = self_ptr.offset(self.dwords as isize);
+                Some(&*(next_atag as *const Atag))
+            }
+        }
     }
 }
 

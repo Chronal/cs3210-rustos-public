@@ -63,9 +63,18 @@ impl Xmodem<()> {
                 return Ok(written);
             }
 
+            let mut retry = false;
+
             for _ in 0..10 {
+                if retry {
+                    (f)(Progress::Retrying);
+                }
+
                 match transmitter.write_packet(&packet) {
-                    Err(ref e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                    Err(ref e) if e.kind() == io::ErrorKind::Interrupted => {
+                        retry = true;
+                        continue
+                    },
                     Err(e) => return Err(e),
                     Ok(_) => {
                         written += n;

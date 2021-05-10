@@ -10,7 +10,7 @@ use fat32::traits::{Dir, Entry};
 
 use crate::console::{kprint, kprintln, CONSOLE};
 use crate::ALLOCATOR;
-use crate::FILESYSTEM;
+//use crate::FILESYSTEM;
 
 use shim::io::Read;
 
@@ -57,8 +57,10 @@ impl<'a> Command<'a> {
 
     fn execute(&self) {
         let path = self.path();
+        let args = &self.args.as_slice();
         match path {
-            "echo" => echo_cmd(&self.args.as_slice()),
+            "echo" => echo_cmd(args),
+            "atags" => atag_cmd(),
             _ => kprint!("unknown command: {}", path)
         }
     }
@@ -109,13 +111,17 @@ pub fn shell(prefix: &str) -> ! {
                 user_input.push(read_char).unwrap();
             }
         }
-
-        //kprintln!("Char {} = Byte {}", read_char as char, read_char as u8);
     }
 }
 
 fn echo_cmd(args: &[&str]) {
     for arg in args.iter().skip(1) {
         kprint!("{} ", arg);
+    }
+}
+
+fn atag_cmd() {
+    for atag in Atags::get() {
+        kprintln!("{:#?}", atag);
     }
 }

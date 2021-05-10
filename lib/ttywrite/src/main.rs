@@ -86,6 +86,7 @@ fn progress_callback(progress_marker: xmodem::Progress) {
         Waiting => println!("{}Waiting for reciever to send NAK", prefix),
         Started => println!("{}Data transfer started", prefix),
         Packet(pack_num) => println!("{}Sent packet num {}", prefix, pack_num),
+        Retrying => println!("{}Retrying packet", prefix),
         //NAK => println!(""),
         //Unknown => println!(""),
     }

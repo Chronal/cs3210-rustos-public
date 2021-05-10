@@ -77,8 +77,31 @@ extern "C" {
 pub fn memory_map() -> Option<(usize, usize)> {
     let page_size = 1 << 12;
     let binary_end = unsafe { (&__text_end as *const u8) as usize };
+    
+    let mut mem_tag = None;
 
-    unimplemented!("memory map")
+    for atag in Atags::get() {
+        match atag {
+            Atag::Mem(mem) => {
+                mem_tag = Some(mem);
+                break;
+            },
+            _ => continue,
+        }
+    }
+
+    if mem_tag.is_none() {
+        return None;
+    }
+
+    let mem_tag = mem_tag.unwrap();
+
+    let start_addr = mem_tag.start as usize;
+    let bin_mem_used: usize = binary_end - start_addr;
+    let end_addr = binary_end + (mem_tag.size as usize - bin_mem_used);
+
+    // Memory pool starts at binary_end
+    return Some((binary_end, end_addr))
 }
 
 impl fmt::Debug for Allocator {

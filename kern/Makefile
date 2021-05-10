@@ -1,13 +1,15 @@
 ROOT := $(shell git rev-parse --show-toplevel)
 
 KERN := kernel
+KERN-DEBUG := kernel-debug
 TARGET := target/aarch64-unknown-none/release/${KERN}
+TARGET-DEBUG := target/aarch64-unknown-none/debug/${KERN}
 SDCARD ?= $(ROOT)/ext/fat32-imgs/mock1.fat32.img
 OBJCPY := cargo objcopy -- --strip-all -O binary
 TTY_PATH := /dev/ttyUSB0
 QEMU_ARGS ?=
 
-.PHONY: all build qemu transmit objdump nm check clean install test
+.PHONY: all build qemu transmit objdump nm check clean install test debug-build
 
 all: build
 
@@ -20,18 +22,26 @@ build:
 	@echo "+ Building build/$(KERN).bin [objcopy]"
 	@$(OBJCPY) $(TARGET) build/$(KERN).bin
 
+debug-build:
+	@echo "+ Building build/$(KERN-DEBUG).elf [xbuild/$@]"
+	@cargo xbuild
+	@mkdir -p build
+	@cp -f $(TARGET-DEBUG) build/$(KERN-DEBUG).elf
+
+	@echo "+ Building build/$(KERN-DEBUG).bin [objcopy]"
+	@$(OBJCPY) $(TARGET-DEBUG) build/$(KERN-DEBUG).bin
+
 check:
 	@cargo xcheck
 
 qemu: build
 	./qemu.sh build/$(KERN).bin -drive file=$(SDCARD),format=raw,if=sd $(QEMU_ARGS)
 
-qemu-gdb: build
-	./qemu.sh build/$(KERN).bin -drive file=$(SDCARD),format=raw,if=sd -s -S
+qemu-gdb: debug-build
+	./qemu.sh build/$(KERN-DEBUG).bin -drive file=$(SDCARD),format=raw,if=sd -s -S
 
 qemu-asm: build
 	./qemu.sh build/$(KERN).bin -drive file=$(SDCARD),format=raw,if=sd -d in_asm
->>>>>>> skeleton/lab3
 
 transmit: build
 	@echo "+ Transmitting build/$(KERN).bin to $(TTY_PATH)"
@@ -53,4 +63,4 @@ install: build
 	@$(ROOT)/bin/install-kernel.py build/$(KERN).elf
 
 test:
-	cargo test --target=$(shell $(ROOT)/bin/get-host-target.sh)
+	cargo test --target=$(shell $(ROOT)/bin/get-host-target.sh) $(ARGS)
