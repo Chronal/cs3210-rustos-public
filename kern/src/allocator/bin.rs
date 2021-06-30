@@ -1,4 +1,6 @@
 use core::alloc::Layout;
+use core::alloc::LayoutErr;
+
 use core::fmt;
 use core::ptr;
 
@@ -6,64 +8,36 @@ use crate::allocator::linked_list::LinkedList;
 use crate::allocator::util::*;
 use crate::allocator::LocalAlloc;
 
-use crate::console::kprintln;
 
 /// A simple allocator that allocates based on size classes.
 ///   bin 0 (2^3 bytes)    : handles allocations in (0, 2^3]
 ///   bin 1 (2^4 bytes)    : handles allocations in (2^3, 2^4]
 ///   ...
-///   bin 29 (2^32 bytes): handles allocations in (2^31, 2^32]
+///   bin 29 (2^22 bytes): handles allocations in (2^31, 2^32]
 ///   
 ///   map_to_bin(size) -> k
 ///   
 
 pub struct Allocator {
-    bins: [ LinkedList; 30 ],
+    bins: [LinkedList; 30],
+    start: usize,
+    end: usize,
+    unallocated_addr: usize,
 }
 
 impl Allocator {
     /// Creates a new bin allocator that will allocate memory from the region
     /// starting at address `start` and ending at address `end`.
     pub fn new(start: usize, end: usize) -> Allocator {
+        let bins = [LinkedList::new(); 30];
 
-        let mut bins: [LinkedList; 30] = [ LinkedList::new(); 30];
-
-        let mut cur_addr = start;
-
-        for expo in (3..25) {
-
-            let block_size = 1 << expo;
-            cur_addr = align_up(cur_addr, block_size);
-
-            if (cur_addr + block_size > end) {
-                break 
-            }
-            
-            let bin_index = expo - 3;
-            unsafe { bins[bin_index].push(cur_addr as *mut usize); }
-            cur_addr += block_size;
-        }
-
-        let block_size = 1 << 24; //16MB
-        let bin_index = 21; // 16 MB bin_index
-        // cur_addr should be already aligned to 16MB
-        while cur_addr + block_size < end {
-            unsafe { bins[bin_index].push(cur_addr as *mut usize); }
-            cur_addr += block_size;
-        }
-
-        /*
-        for (index, bin) in bins.iter().enumerate() {
-            let bin_size: usize = 1 << (index + 3);
-            kprintln!("Bin size: {}", bin_size);
-            for node in bin.iter() {
-                kprintln!("{:?}", node);
-            }
-        }
-        */
+        let start = align_up(start, 1 << 3); 
 
         Allocator {
             bins: bins,
+            start: start,
+            end: end,
+            unallocated_addr: start,
         }
     }
 }
@@ -91,49 +65,63 @@ impl LocalAlloc for Allocator {
     /// or `layout` does not meet this allocator's
     /// size or alignment constraints.
     unsafe fn alloc(&mut self, layout: Layout) -> *mut u8 {
-        let new_layout =  transform_layout(layout);
-        let bin_index: usize = log2(new_layout.align()) - 3;
+        let layout = transform_layout(layout);
 
-        match self.bins[bin_index].pop() {
-            Some(addr) => return addr as *mut u8,
-            _ => (),
-        };
-
-        for index in (bin_index + 1)..self.bins.len() {
-            let node = self.bins[index].pop();
-            
-            if node.is_none() {
-                continue;
-            }
-
-            let mut cur_addr = node.unwrap() as usize;
-
-            /*
-            let cur_block_size = 1 << index;
-
-            for _ in 0..log2(cur_block_size) {
-                unsafe { self.bins[bin_index].push(cur_addr as *mut usize); }
-                cur_addr += new_layout.size();
-            }
-            */
-
-            let mut cur_block_size = 1 << index;
-
-            for move_index in ((bin_index + 1)..index).rev() {
-                kprintln!("addr: {}, align {}", cur_addr, cur_block_size);
-                cur_block_size = cur_block_size >> 1;
-                unsafe { self.bins[move_index].push(cur_addr as *mut usize); }
-                cur_addr += cur_block_size;
-            }
-
-            cur_block_size = cur_block_size >> 1;
-            unsafe { self.bins[bin_index].push(cur_addr as *mut usize); }
-            cur_addr += cur_block_size;
-
-            return cur_addr as *mut u8;
+        if layout.is_err() {
+            return core::ptr::null_mut();
         }
-        
-        return core::ptr::null_mut();
+
+        let layout = layout.unwrap();
+
+        let bin_index = log2(layout.size()) - 3;
+        let bin = &mut self.bins[bin_index];
+
+        // memory already in bin
+        if (bin.peek().is_some()) {
+            return bin.pop().unwrap() as *mut u8;
+        }
+
+        /*
+        // Get memory for larger bins
+        'outer: for (index, bin) in self.bins[(bin_index + 1)..].iter_mut().enumerate() {
+            if bin.peek().is_none() {
+                continue
+            }
+
+            let index = index + (bin_index + 1);
+
+            let required_bin_size = 1 << bin_index;
+            let cur_bin_size = 1 << index;
+
+            let mem_block = bin.pop().unwrap() as usize;
+
+            let nsplit_blocks = cur_bin_size/required_bin_size;
+            for n in (1..nsplit_blocks) {
+                let new_block = (mem_block as usize) + n*required_bin_size;
+                bin.push(new_block as *mut usize); 
+            }
+
+            return mem_block as *mut u8
+        }
+        */
+
+        let alloc_addr = align_up(self.unallocated_addr, layout.align());
+
+        if (alloc_addr + layout.size() > self.end) {
+            return core::ptr::null_mut();
+        }
+
+        let prev_unalloc = self.unallocated_addr;
+        self.unallocated_addr = alloc_addr + layout.size();
+
+        //Put memory between prev_unalloc and the alloc_addr into the smallest bin
+        let mut cur_addr = prev_unalloc;
+        while (cur_addr + 8 < alloc_addr) {
+            self.bins[0].push(cur_addr as *mut usize);
+            cur_addr += 8;
+        }
+
+        return alloc_addr as *mut u8;
     }
 
     /// Deallocates the memory referenced by `ptr`.
@@ -150,36 +138,67 @@ impl LocalAlloc for Allocator {
     /// Parameters not meeting these conditions may result in undefined
     /// behavior.
     unsafe fn dealloc(&mut self, ptr: *mut u8, layout: Layout) {
-        let new_layout =  transform_layout(layout);
-        let bin_index: usize = log2(new_layout.align()) - 3;
+        if (ptr.is_null()) {
+            return;
+        }
 
-        unsafe { self.bins[bin_index].push(ptr as *mut usize); }
+        let layout = transform_layout(layout).unwrap();
+
+        // Can use layout.size() or layout.align())
+        let bin_index = log2(layout.size()) - 3;
+        let mut bin = &mut self.bins[bin_index];
+
+        bin.push(ptr as *mut usize);
+
     }
 }
 
-fn transform_layout(layout: Layout) -> Layout {
-    let adjusted_size = layout.size().next_power_of_two();
-    if adjusted_size > layout.align() {
+fn transform_layout(layout: Layout) -> Result<Layout, ()> {
+    if (layout.size() == 0 || !layout.align().is_power_of_two()) {
+        return Err(());
+    }
+
+    let mut adjusted_size = layout.size().next_power_of_two();
+    let mut adjusted_align = layout.align(); 
+
+    if (adjusted_size < 8) {
+        adjusted_size = 8;
+    }
+
+    if (adjusted_align < 8) {
+        adjusted_align = 8;
+    }
+
+    let new_layout = if adjusted_size > adjusted_align {
         Layout::from_size_align(adjusted_size, adjusted_size)
     } else {
-        Layout::from_size_align(layout.align(),layout.align())
-    }.unwrap()
+        Layout::from_size_align(adjusted_align, adjusted_align)
+    };
+
+    return Ok(new_layout.unwrap())
 }
 
+// n has to be power of two
 fn log2(n: usize) -> usize {
-    let mut cur_val = n;
-    let mut log_val = 0;
-    while cur_val > 1 {
-        cur_val >>= 1;
-        log_val+= 1;
-    }
+    n.trailing_zeros() as usize
+}
 
-    return log_val;
+fn previous_power_of_two(n: usize) -> usize {
+    if (n.is_power_of_two()) {
+        n
+    } else {
+        n.next_power_of_two() << 1
+    }
 }
 
 // FIXME: Implement `Debug` for `Allocator`.
 impl fmt::Debug for Allocator {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("Allocator").finish()
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        f.debug_struct("Bin Alloc")
+            .field("bins", &self.bins)
+            .field("start", &self.start)
+            .field("unallocated_addr", &self.unallocated_addr)
+            .field("end", &self.end)
+            .finish()
     }
 }
